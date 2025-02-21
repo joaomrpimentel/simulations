@@ -22,18 +22,23 @@ struct Cell
     int y;
 };
 
-void draw_cell(SDL_Surface* surface, struct Cell cell){
+void draw_cell(SDL_Surface* surface, struct Cell cell, int fill_cell){
     int pixel_x = cell.x*CELL_SIZE;
     int pixel_y = cell.y*CELL_SIZE;
     SDL_Rect cell_rect = (SDL_Rect){pixel_x, pixel_y, CELL_SIZE, CELL_SIZE};
     // Background color
     SDL_FillRect(surface, &cell_rect, COLOR_BLACK);
     // Water fill level
-    if(cell.type == WATER_TYPE){
-        double water_height = cell.fill_level * CELL_SIZE;
-        double empty_height = CELL_SIZE - water_height;
-        SDL_Rect water_rect = (SDL_Rect){pixel_x, (pixel_y + empty_height), CELL_SIZE, water_height};
-        SDL_FillRect(surface, &water_rect, COLOR_BLUE);
+    if(cell.type == WATER_TYPE){        
+        if(fill_cell == 0){
+            double water_height = cell.fill_level > 1 ? CELL_SIZE : cell.fill_level * CELL_SIZE; // Avoid overflowing weird behavior
+            double empty_height = CELL_SIZE - water_height;
+            SDL_Rect water_rect = (SDL_Rect){pixel_x, (pixel_y + empty_height), CELL_SIZE, water_height};
+            SDL_FillRect(surface, &water_rect, COLOR_BLUE);
+        }
+        else{
+            SDL_FillRect(surface,&cell_rect, COLOR_BLUE);
+        }
     }
     // Solid color
     if(cell.type == SOLID_TYPE){
@@ -43,7 +48,18 @@ void draw_cell(SDL_Surface* surface, struct Cell cell){
 
 void draw_environment(SDL_Surface* surface, struct Cell environment[ROWS*COLUMNS]){
     for(int i=0; i<ROWS*COLUMNS; i++){
-        draw_cell(surface,environment[i]);
+        draw_cell(surface,environment[i], 0);
+    }
+    // Making the fountain be continuous 
+    for(int i=0; i<ROWS; i++){
+        for(int j=0; j<COLUMNS; j++){
+            struct Cell above_cell = environment[j+COLUMNS*(i-1)];
+            struct Cell current_cell = environment[j+COLUMNS*i];
+
+            if(i>0 && above_cell.type == WATER_TYPE && above_cell.fill_level > 0.015 && current_cell.fill_level > 0.015 && current_cell.type == WATER_TYPE){
+                draw_cell(surface, environment[j+COLUMNS*i], 1);
+            }
+        }
     }
 }
 
@@ -66,7 +82,40 @@ void initialize_environment(struct Cell environment[ROWS*COLUMNS]){
     }
 }
 
-void simulation_step(struct Cell environment[ROWS*COLUMNS]){
+void water_flow_down(struct Cell environment[ROWS*COLUMNS]) {
+    struct Cell environment_copy[ROWS*COLUMNS];
+    for (int i=0; i<ROWS*COLUMNS; i++){
+        environment_copy[i] = environment[i];
+    }
+
+    for (int i = ROWS-2; i >= 0; i--) {  // Starts upside down
+        for (int j = 0; j < COLUMNS; j++) {
+            struct Cell current_cell = environment[j + COLUMNS*i];
+            struct Cell bottom_cell = environment[j + COLUMNS*(i+1)];
+            
+            if (current_cell.type == WATER_TYPE && current_cell.fill_level > 0) {
+                if (bottom_cell.type == WATER_TYPE && bottom_cell.fill_level < 1) {
+                    double transfer_amount = 0.2; // Sets a speed for it to flow
+                    if (current_cell.fill_level < transfer_amount) {
+                        transfer_amount = current_cell.fill_level;
+                    }
+                    if (bottom_cell.fill_level + transfer_amount > 1) {
+                        transfer_amount = 1 - bottom_cell.fill_level;
+                    }
+                    
+                    environment_copy[j + COLUMNS*i].fill_level -= transfer_amount;
+                    environment_copy[j + COLUMNS*(i+1)].fill_level += transfer_amount;
+                }
+            }
+        }
+    }
+
+    for (int i=0; i<ROWS*COLUMNS; i++){
+        environment[i] = environment_copy[i];
+    }
+}
+
+void water_flow_horizntally(struct Cell environment[ROWS*COLUMNS]){
 
     struct Cell environment_copy[ROWS*COLUMNS];
     for (int i=0; i<ROWS*COLUMNS; i++){
@@ -75,20 +124,10 @@ void simulation_step(struct Cell environment[ROWS*COLUMNS]){
 
     for (int i=0; i<ROWS; i++){
         for (int j=0; j<COLUMNS; j++){
-            // Water flow down
+            // Water flow left and right
             struct Cell current_cell = environment[j + COLUMNS*i];
             struct Cell bottom_cell = environment[j + COLUMNS*(i+1)];
-            if (current_cell.type == WATER_TYPE && i<ROWS-1)
-            {
-                if(bottom_cell.fill_level <= current_cell.fill_level)
-                {
-                    environment_copy[j+COLUMNS*i].fill_level -= current_cell.fill_level;
-                    environment_copy[j+COLUMNS*(i+1)].fill_level += current_cell.fill_level;
-                }
-                
-            }
-            // Water flow left and right
-            if ((i+1 == ROWS || bottom_cell.fill_level > 1 ) || bottom_cell.type == SOLID_TYPE)
+            if ((i+1 == ROWS || bottom_cell.fill_level >= current_cell.fill_level ) || bottom_cell.type == SOLID_TYPE)
             {
                 // Left
                 if(current_cell.type == WATER_TYPE && j>0)
@@ -120,8 +159,44 @@ void simulation_step(struct Cell environment[ROWS*COLUMNS]){
     }
 }
 
+void water_pressure(struct Cell environment[ROWS*COLUMNS]){
+
+    struct Cell environment_copy[ROWS*COLUMNS];
+    for (int i=0; i<ROWS*COLUMNS; i++){
+        environment_copy[i] = environment[i];
+    }
+
+    for (int i=0; i<ROWS; i++){
+        for (int j=0; j<COLUMNS; j++){
+            struct Cell current_cell = environment[j + COLUMNS*i];
+            struct Cell above_cell = environment[j + COLUMNS*(i-1)];
+
+            if(current_cell.type == WATER_TYPE && current_cell.fill_level > 1 && i > 0 && above_cell.type == WATER_TYPE && current_cell.fill_level > above_cell.fill_level)
+            {
+                double delta_fill = (current_cell.fill_level - 1 ) - above_cell.fill_level;   
+                environment_copy[j + COLUMNS*i].fill_level -= delta_fill;
+                environment_copy[j + COLUMNS*(i-1)].fill_level += delta_fill;
+            }
+            
+        }
+    }
+
+    for (int i=0; i<ROWS*COLUMNS; i++){
+        environment[i] = environment_copy[i];
+    }
+}
+
+void simulation_step(struct Cell environment[ROWS*COLUMNS]){
+
+    water_flow_down(environment);
+    
+    water_flow_horizntally(environment);
+
+    water_pressure(environment);
+}
+
 int main(){
-    SDL_Init(SDL_INIT_VIDEO);
+    SDL_Init(SDL_INIT_VIDEO);       
     SDL_Window* window = SDL_CreateWindow("Liquid Simulation", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, SCREEN_WIDTH, SCREEN_HEIGHT, 0);
 
     SDL_Surface* surface = SDL_GetWindowSurface(window);
@@ -145,13 +220,19 @@ int main(){
                 {
                     int cell_x = event.motion.x / CELL_SIZE;
                     int cell_y = event.motion.y / CELL_SIZE;
-                    int fill_level = 1;
+                    int fill_level = delete_mode ? 0 : 1;
+                    struct Cell cell;
                     if (delete_mode != 0)
                     {
                         current_type = WATER_TYPE;
                         fill_level = 0;
+                        cell = (struct Cell){current_type,fill_level,cell_x,cell_y};
                     }
-                    struct Cell cell = (struct Cell){current_type,fill_level,cell_x,cell_y};
+                    else
+                    {
+                        fill_level = 1;
+                        struct Cell cell = (struct Cell){current_type,fill_level,cell_x,cell_y};
+                    }
                     environment[cell_x + COLUMNS*cell_y] = cell;
                 }
             }
@@ -171,7 +252,7 @@ int main(){
         // Simulation
         simulation_step(environment);
         draw_environment(surface,environment);
-        draw_grid(surface);
+        // draw_grid(surface);
         SDL_UpdateWindowSurface(window);
         SDL_Delay(30);
     }
