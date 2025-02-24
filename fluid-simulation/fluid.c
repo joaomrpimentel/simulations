@@ -7,7 +7,7 @@
 #define COLOR_BLACK 0x00000000
 #define COLOR_BLUE 0x03A9F4
 #define COLOR_BROWN 0x201513
-#define CELL_SIZE 20
+#define CELL_SIZE 10
 #define LINE_WIDTH 2
 #define COLUMNS SCREEN_WIDTH/CELL_SIZE
 #define ROWS SCREEN_HEIGHT/CELL_SIZE
@@ -33,11 +33,11 @@ void draw_cell(SDL_Surface* surface, struct Cell cell, int fill_cell){
         if(fill_cell == 0){
             double water_height = cell.fill_level > 1 ? CELL_SIZE : cell.fill_level * CELL_SIZE; // Avoid overflowing weird behavior
             double empty_height = CELL_SIZE - water_height;
-            SDL_Rect water_rect = (SDL_Rect){pixel_x, (pixel_y + empty_height), CELL_SIZE, water_height};
+            SDL_Rect water_rect = (SDL_Rect){pixel_x, (pixel_y + empty_height + 1), CELL_SIZE, water_height};
             SDL_FillRect(surface, &water_rect, COLOR_BLUE);
         }
         else{
-            SDL_FillRect(surface,&cell_rect, COLOR_BLUE);
+            SDL_FillRect(surface,&cell_rect, COLOR_BLUE);   
         }
     }
     // Solid color
