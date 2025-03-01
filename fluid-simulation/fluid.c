@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <SDL2/SDL.h>
+#include <math.h>
 
 #define SCREEN_WIDTH 1000
 #define SCREEN_HEIGHT 700
@@ -13,6 +14,9 @@
 #define ROWS SCREEN_HEIGHT/CELL_SIZE
 #define SOLID_TYPE 1
 #define WATER_TYPE 0
+
+int prev_mouse_x = -1;
+int prev_mouse_y = -1;
 
 struct Cell 
 {
@@ -50,7 +54,7 @@ void draw_environment(SDL_Surface* surface, struct Cell environment[ROWS*COLUMNS
     for(int i=0; i<ROWS*COLUMNS; i++){
         draw_cell(surface,environment[i], 0);
     }
-    // Making the fountain be continuous 
+    // Making the fountain be continuous    
     for(int i=0; i<ROWS; i++){
         for(int j=0; j<COLUMNS; j++){
             struct Cell above_cell = environment[j+COLUMNS*(i-1)];
@@ -78,6 +82,36 @@ void initialize_environment(struct Cell environment[ROWS*COLUMNS]){
     for (int i=0; i<ROWS; i++){
         for(int j=0; j<COLUMNS; j++){
             environment[j + COLUMNS*i] = (struct Cell){WATER_TYPE, 0, j, i};
+        }
+    }
+}
+
+// Bresenham's line algorithm to prevent the stuttering while drawing fast
+void draw_line(struct Cell environment[ROWS*COLUMNS], int x0, int y0, int x1, int y1, int current_type, int fill_level) {
+    int dx = abs(x1 - x0);
+    int dy = -abs(y1 - y0);
+    int sx = x0 < x1 ? 1 : -1;
+    int sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy;
+    int e2;
+    
+    while (1) {
+        if (x0 >= 0 && x0 < COLUMNS && y0 >= 0 && y0 < ROWS) {
+            struct Cell cell = {current_type, fill_level, x0, y0};
+            environment[x0 + COLUMNS*y0] = cell;
+        }
+        
+        if (x0 == x1 && y0 == y1) break;
+        e2 = 2 * err;
+        if (e2 >= dy) {
+            if (x0 == x1) break;
+            err += dy;
+            x0 += sx;
+        }
+        if (e2 <= dx) {
+            if (y0 == y1) break;
+            err += dx;
+            y0 += sy;
         }
     }
 }
@@ -213,29 +247,31 @@ int main(){
     {
         while(SDL_PollEvent(&event))
         {
-            if (event.type == SDL_QUIT){ simulation_running = 0; } // Close Program
-            if (event.type == SDL_MOUSEMOTION) // Draw on screen
+            if (event.type == SDL_QUIT){ simulation_running = 0; }
+            
+            if (event.type == SDL_MOUSEMOTION)
             {
                 if(event.motion.state != 0)
                 {
                     int cell_x = event.motion.x / CELL_SIZE;
                     int cell_y = event.motion.y / CELL_SIZE;
                     int fill_level = delete_mode ? 0 : 1;
-                    struct Cell cell;
-                    if (delete_mode != 0)
-                    {
-                        current_type = WATER_TYPE;
-                        fill_level = 0;
-                        cell = (struct Cell){current_type,fill_level,cell_x,cell_y};
+                    
+                    if (prev_mouse_x >= 0 && prev_mouse_y >= 0) {
+                        draw_line(environment, prev_mouse_x, prev_mouse_y, cell_x, cell_y, current_type, fill_level);
+                    } else {
+                        struct Cell cell = {current_type, fill_level, cell_x, cell_y};
+                        environment[cell_x + COLUMNS*cell_y] = cell;
                     }
-                    else
-                    {
-                        fill_level = 1;
-                        struct Cell cell = (struct Cell){current_type,fill_level,cell_x,cell_y};
-                    }
-                    environment[cell_x + COLUMNS*cell_y] = cell;
+                    
+                    prev_mouse_x = cell_x;
+                    prev_mouse_y = cell_y;
+                } else {
+                    prev_mouse_x = -1;
+                    prev_mouse_y = -1;
                 }
             }
+            
             if (event.type == SDL_KEYDOWN)
             {
                 if (event.key.keysym.sym == SDLK_SPACE)
@@ -254,8 +290,10 @@ int main(){
         draw_environment(surface,environment);
         // draw_grid(surface);
         SDL_UpdateWindowSurface(window);
-        SDL_Delay(30);
+        SDL_Delay(12);
     }
 
-    
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    return 0;
 }
